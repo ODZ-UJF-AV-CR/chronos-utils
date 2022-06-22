@@ -9,6 +9,9 @@ import array
 import getopt
 import platform
 import errno
+import numpy
+import numpy as np
+from PIL import Image
 
 class Type:
     # TIFF Type Format = (Tag TYPE value, Size in bytes of one instance)
@@ -343,19 +346,31 @@ def readFrame(file, width, length, bpp):
                 frame[off + 3] = (b & 0xff00) >> 8
 
             return frame
-
+        
+#       Original 12bit raw convertor
+#         elif (bpp == 12):
+#             ## Read and convert to 16-bpp.
+#             frame = bytearray(width * length * 2)
+#             for off in range(0, len(frame), 4):
+#                 pix = bytearray(file.read(3))
+#                 a = (pix[0] << 4) + ((pix[1] & 0xf0) << 8)
+#                 b = (pix[2] << 8) + ((pix[1] & 0x0f) << 4)
+#                 frame[off + 0] = (a & 0x00ff) >> 0
+#                 frame[off + 1] = (a & 0xff00) >> 8
+#                 frame[off + 2] = (b & 0x00ff) >> 0
+#                 frame[off + 3] = (b & 0xff00) >> 8
+            
+#             return frame
+        
         elif (bpp == 12):
             ## Read and convert to 16-bpp.
-            frame = bytearray(width * length * 2)
-            for off in range(0, len(frame), 4):
+            frame = [None] * (width*length)
+            for off in range(0, len(frame), 2):
                 pix = bytearray(file.read(3))
-                a = (pix[0] << 4) + ((pix[1] & 0xf0) << 8)
-                b = (pix[2] << 8) + ((pix[1] & 0x0f) << 4)
-                frame[off + 0] = (a & 0x00ff) >> 0
-                frame[off + 1] = (a & 0xff00) >> 8
-                frame[off + 2] = (b & 0x00ff) >> 0
-                frame[off + 3] = (b & 0xff00) >> 8
-            
+                a = int((pix[0] << 4) + ((pix[1] & 0xf0) << 8))
+                b = int((pix[2] << 8) + ((pix[1] & 0x0f) << 4))
+                frame[off + 0] = a
+                frame[off + 1] = b
             return frame
     
     except:
@@ -368,9 +383,9 @@ def convertVideo(inputFilename, outputFilenameFormat, width, length, colour, bpp
     creationTimeString = time.strftime("%x %X", time.localtime(creationTime))
 
     # https://stackoverflow.com/questions/12517451/automatically-creating-directories-with-file-output
-    if not os.path.exists(os.path.dirname(outputFilenameFormat % (0))):
+    if not os.path.exists(os.path.dirname(outputFilenameFormat.format(0))):
         try:
-            os.makedirs(os.path.dirname(outputFilenameFormat % (0)))
+            os.makedirs(os.path.dirname(outputFilenameFormat.format(0)))
         except OSError as exc: # Guard against race condition
             if exc.errno != errno.EEXIST:
                 raise
@@ -430,13 +445,12 @@ def convertVideo(inputFilename, outputFilenameFormat, width, length, colour, bpp
 
     frameNum = 0
     while(rawFrame):
-        dngTemplate.ImageDataStrips[0] = rawFrame
-        dngTemplate.write()
-
-        outfile = open(outputFilenameFormat % frameNum, "wb")
-        outfile.write(buf)
-        outfile.close()
-
+        Frame = np.reshape(np.array(rawFrame, 'uint16'), (width,length))
+        pillow_image = Image.fromarray(Frame, mode = "I;16")
+        file = outputFilenameFormat.format(frameNum)
+        pillow_image.save(file)
+        print(".", end = '', flush=True)
+        
         # go onto next frame
         rawFrame = readFrame(rawFile, width, length, bpp)
         frameNum += 1
@@ -460,11 +474,11 @@ Options:
  -l/--length Frame length
  -h/--height Frame length (please use only one)
    
-Output filename format must include '%06d' which will be replaced by the image sequence number.
+Output filename format must include '{:06d}' which will be replaced by the image sequence number.
 
 Examples:
   pyraw2dng.py -M -w 1280 -l 1024 test.raw
-  pyraw2dng.py -w 336 -l 96 test.raw test_output/test_%06d.DNG
+  pyraw2dng.py -w 336 -l 96 test.raw test_output/test_{:06d}.DNG
 '''
 
 
@@ -519,8 +533,10 @@ def main():
         inputFilename = args[0]
         dirname = os.path.splitext(inputFilename)[0]
         basename = os.path.basename(inputFilename)
+        print(inputFilename)
         print(basename)
-        outputFilenameFormat = dirname + '/frame_%06d.DNG'
+        print(dirname)
+        outputFilenameFormat = dirname + '/' + basename + '_{:06d}.tiff'
     else:
         inputFilename = args[0]
         outputFilenameFormat = args[1]
